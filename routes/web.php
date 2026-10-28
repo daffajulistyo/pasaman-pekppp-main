@@ -72,6 +72,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:admin')->group(function () {
         Route::get('/laporan', [ReportController::class, 'index'])->name('laporan.index');
         Route::get('/laporan/berita-acara/{evaluation}', [ReportController::class, 'beritaAcara'])->name('laporan.berita_acara');
+        Route::get('/laporan/berita-acara/{evaluation}/cetak', [ReportController::class, 'beritaAcaraCetak'])->name('laporan.berita_acara.cetak');
         Route::post('/laporan/berita-acara/{evaluation}/tanda-tangan', [ReportController::class, 'simpanTandaTangan'])->name('laporan.berita_acara.simpan');
         Route::post('/bap/{evaluation}/ttd/{role}/token-baru', [ReportController::class, 'regenerateSignerToken'])->name('bap.ttd.regenerate');
         Route::get('/laporan/rekapitulasi/{evaluation}', [ReportController::class, 'rekapitulasi'])->name('laporan.rekapitulasi');

@@ -44,15 +44,65 @@ class BapSignatureTest extends TestCase
         return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
     }
 
-    public function test_berita_acara_menampilkan_bagian_kondisi_catatan_rekomendasi_dan_link_ttd(): void
+    public function test_berita_acara_menampilkan_pengaturan_dan_aksi_dokumen_di_template_admin(): void
     {
         $response = $this->actingAs($this->admin)->get(route('laporan.berita_acara', $this->evaluation));
 
         $response->assertOk();
-        $response->assertSee('Kondisi');
-        $response->assertSee('Rekomendasi');
+
+        // Halaman pengaturan memakai template admin.
+        $response->assertSee('id="page-root"', false);
+        $response->assertSee('Identitas Berita Acara', false);
+        $response->assertSee('name="ba_nomor"', false);
+        $response->assertSee('name="ba_tanggal"', false);
+        $response->assertSee('Tanda Tangan Publik', false);
+
+        // Tautan tanda tangan publik tersedia (untuk disalin/dibuka) bagi kedua peran.
         $response->assertSee(route('bap.ttd.show', $this->evaluation->signer('pejabat')->token), false);
         $response->assertSee(route('bap.ttd.show', $this->evaluation->signer('penilai')->token), false);
+
+        // Tautan disimpan tersembunyi, tidak ditampilkan dalam kotak teks.
+        $response->assertDontSee('type="text" readonly', false);
+        $response->assertSee('id="ttd-url-pejabat"', false);
+
+        // Tepat tiga tombol per penanda tangan.
+        $this->assertSame(2, substr_count($response->getContent(), 'data-copy-target='));
+        $this->assertSame(2, substr_count($response->getContent(), 'Buat baru'));
+
+        // Pratinjau cetak dibuka di tab terpisah, bukan disematkan sebagai iframe.
+        $response->assertSee(route('laporan.berita_acara.cetak', $this->evaluation), false);
+        $response->assertDontSee('id="bap-preview"', false);
+        $response->assertDontSee('hasil cetak apa adanya', false);
+
+        // Aksi dokumen berada di baris atas bersama tahun dan status.
+        $response->assertSee('Buka Pratinjau Cetak', false);
+        $response->assertDontSee('Dokumen Berita Acara', false);
+
+        // Script salin tautan tetap terkirim.
+        $response->assertSee('data-copy-target]', false);
+    }
+
+    public function test_halaman_pratinjau_cetak_punya_toolbar_cetak_tanpa_template_admin(): void
+    {
+        $response = $this->actingAs($this->admin)
+            ->get(route('laporan.berita_acara.cetak', $this->evaluation));
+
+        $response->assertOk();
+
+        // Isi dokumen sesuai contoh BAP.
+        $response->assertSee('HASIL PEMANTAUAN DAN EVALUASI PENYELENGGARAAN PELAYANAN PUBLIK', false);
+        $response->assertSee('>Kondisi<', false);
+        $response->assertSee('>Rekomendasi<', false);
+
+        // Toolbar dokumen tampil dengan tombol cetak di atas.
+        $response->assertSee('<div class="doc-toolbar no-print">', false);
+        $response->assertSee('Cetak / Simpan PDF', false);
+
+        // Kembali mengarah ke halaman pengaturan Berita Acara.
+        $response->assertSee(route('laporan.berita_acara', $this->evaluation), false);
+
+        // Tetap tanpa sidebar/template admin.
+        $response->assertDontSee('id="page-root"', false);
     }
 
     public function test_halaman_publik_ttd_dapat_dibuka_tanpa_login(): void

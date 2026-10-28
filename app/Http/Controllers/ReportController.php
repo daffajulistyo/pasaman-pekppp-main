@@ -59,6 +59,22 @@ class ReportController extends Controller
     }
 
     /**
+     * Pratinjau dokumen Berita Acara siap cetak (tanpa template admin).
+     */
+    public function beritaAcaraCetak(Evaluation $evaluation): View
+    {
+        $evaluation->load(['opd', 'bapSigners']);
+
+        return view('laporan.berita-acara-cetak', [
+            'evaluation' => $evaluation,
+            'bapRows' => $evaluation->bapRows(),
+            'signers' => collect(BapSigner::roleLabels())
+                ->mapWithKeys(fn ($label, $role) => [$role => $evaluation->signer($role)])
+                ->all(),
+        ]);
+    }
+
+    /**
      * Buat ulang tautan tanda tangan publik untuk satu peran penanda tangan.
      * Tanda tangan lama otomatis dihapus agar dapat diisi ulang.
      */

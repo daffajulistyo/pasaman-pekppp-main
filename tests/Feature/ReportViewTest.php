@@ -118,7 +118,7 @@ class ReportViewTest extends TestCase
         ]);
 
         $response = $this->actingAs($this->admin)
-            ->get(route('laporan.berita_acara', $this->evaluation));
+            ->get(route('laporan.berita_acara.cetak', $this->evaluation));
 
         $response->assertOk();
 
@@ -146,7 +146,7 @@ class ReportViewTest extends TestCase
         $indicator = $aspect->indicators()->firstOrFail();
 
         $html = $this->actingAs($this->admin)
-            ->get(route('laporan.berita_acara', $this->evaluation))
+            ->get(route('laporan.berita_acara.cetak', $this->evaluation))
             ->assertOk()
             ->getContent();
 

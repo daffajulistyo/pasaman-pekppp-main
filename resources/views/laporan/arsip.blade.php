@@ -107,7 +107,7 @@
                                 </td>
                                 <td>
                                     <div class="flex justify-end gap-2">
-                                        <a href="{{ route('laporan.berita_acara', $row) }}" target="_blank" rel="noopener" class="btn btn-outline btn-sm">
+                                        <a href="{{ route('laporan.berita_acara', $row) }}" class="btn btn-outline btn-sm">
                                             <x-ui.icon name="file-text" class="h-4 w-4" /> Berita Acara
                                         </a>
                                         <a href="{{ route('laporan.rekapitulasi', $row) }}" target="_blank" rel="noopener" class="btn btn-soft btn-sm">
