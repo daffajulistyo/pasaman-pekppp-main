@@ -5,15 +5,19 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class F02Score extends Model
+class F02IndicatorScore extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'evaluation_id',
-        'f01_question_id',
+        'indicator_id',
         'score',
         'notes',
+    ];
+
+    protected $casts = [
+        'score' => 'integer',
     ];
 
     public function evaluation()
@@ -21,8 +25,8 @@ class F02Score extends Model
         return $this->belongsTo(Evaluation::class);
     }
 
-    public function question()
+    public function indicator()
     {
-        return $this->belongsTo(F01Question::class, 'f01_question_id');
+        return $this->belongsTo(Indicator::class);
     }
 }

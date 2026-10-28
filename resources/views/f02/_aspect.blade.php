@@ -1,13 +1,28 @@
 @php
     /**
-     * Panel satu aspek F-02.
+     * Panel satu aspek F-02: card kiri berisi isian F-01 (read-only) dan
+     * card kanan berisi penilaian 0-5 + catatan per indikator.
      *
      * @var \App\Models\Aspect $asp
-     * Scope yang dipakai dari view induk: $scores, $evaluatorNotes, $f01Answers, $weight.
+     * Scope dari view induk: $scores, $evaluatorNotes, $f01Answers, $aspectLinks, $weight, $recap.
      */
-    $aspQuestions = $asp->indicators->flatMap->f01Questions;
-    $aspTotal = $aspQuestions->count();
-    $aspScored = $aspQuestions->filter(fn ($q) => isset($scores[$q->id]))->count();
+    $aspIndicatorIds = $asp->indicators->pluck('id');
+    $aspScored = $aspIndicatorIds->filter(fn ($id) => array_key_exists($id, $scores))->count();
+    $aspTotal = $aspIndicatorIds->count();
+    $aspAverage = $aspScored > 0
+        ? round($aspIndicatorIds->map(fn ($id) => $scores[$id] ?? null)->filter(fn ($v) => $v !== null)->avg(), 2)
+        : 0;
+    $link = $aspectLinks[$asp->id] ?? null;
+
+    $answerText = function ($ans) {
+        $answer = $ans?->answer_value;
+
+        if (is_array($answer)) {
+            return implode(', ', array_map('strval', $answer));
+        }
+
+        return trim((string) ($answer ?? ''));
+    };
 @endphp
 
 <div class="card">
@@ -18,114 +33,148 @@
                 <h2 class="font-semibold text-white">{{ $asp->name }}</h2>
                 <p class="text-sm text-white/80">Bobot aspek: <strong>{{ $weight($asp->weight) }}%</strong> dari total F-02</p>
             </div>
-            <span class="badge bg-white/20 text-white">{{ $aspScored }}/{{ $aspTotal }} butir dinilai</span>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="badge bg-white/20 text-white">{{ $aspScored }}/{{ $aspTotal }} indikator dinilai</span>
+                <span class="badge bg-white/20 text-white">Rata-rata: {{ number_format($aspAverage, 2, ',', '.') }}</span>
+            </div>
         </div>
     </div>
 
-    <div class="card-content space-y-6 pt-6">
-        @forelse ($asp->indicators as $ind)
-            <div @class(['border-t pt-6' => ! $loop->first])>
-                <div class="mb-4 flex flex-wrap items-center gap-2">
-                    <x-ui.badge variant="success">Indikator {{ $ind->number }}</x-ui.badge>
-                    <x-ui.badge variant="outline">Kode {{ $ind->code }}</x-ui.badge>
-                    <h3 class="text-sm font-semibold">{{ $ind->name }}</h3>
+    <div class="card-content grid gap-5 pt-6 lg:grid-cols-12">
+        {{-- ============ CARD KIRI: isian F-01 unit layanan ============ --}}
+        <div class="space-y-4 lg:col-span-7">
+            <div class="rounded-lg border border-success/25 bg-success-soft/40 p-4">
+                <p class="text-xs font-bold uppercase tracking-wide text-success">
+                    <x-ui.icon name="external" class="inline h-3.5 w-3.5" /> Bukti dukung aspek (F-01)
+                </p>
+                @if ($link)
+                    <a href="{{ $link }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm mt-2 max-w-full truncate text-success">
+                        <x-ui.icon name="external" class="h-4 w-4" /> Buka Folder Google Drive
+                    </a>
+                @else
+                    <p class="mt-1 text-sm italic text-muted-foreground">Unit layanan belum melampirkan tautan Google Drive untuk aspek ini.</p>
+                @endif
+            </div>
+
+            @forelse ($asp->indicators as $ind)
+                <article class="rounded-lg border">
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/20 px-4 py-3">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <x-ui.badge variant="success">Indikator {{ $ind->number }}</x-ui.badge>
+                            <x-ui.badge variant="outline">Kode {{ $ind->code }}</x-ui.badge>
+                        </div>
+                        <x-ui.badge variant="outline">{{ $ind->f01Questions->count() }} Butir</x-ui.badge>
+                    </div>
+
+                    <div class="border-b px-4 py-3">
+                        <h3 class="text-sm font-semibold leading-snug">{{ $ind->name }}</h3>
+                    </div>
+
+                    <div class="space-y-3 bg-muted/10 p-4">
+                        @forelse ($ind->f01Questions as $q)
+                            @php $answer = $answerText($f01Answers->get($q->id)); @endphp
+                            <div class="rounded-md border bg-card px-3 py-2.5">
+                                <div class="flex items-start gap-2">
+                                    <x-ui.badge variant="primary" class="mt-0.5 shrink-0">{{ $q->question_code }}</x-ui.badge>
+                                    <p class="text-sm leading-relaxed">{{ $q->question_text }}</p>
+                                </div>
+                                <p class="mt-1.5 rounded bg-success-soft/50 px-2 py-1 text-sm font-medium">
+                                    {{ $answer !== '' ? $answer : '— belum diisi unit layanan —' }}
+                                </p>
+                            </div>
+                        @empty
+                            <p class="text-sm italic text-muted-foreground">Tidak ada butir pertanyaan pada indikator ini.</p>
+                        @endforelse
+
+                        @if (($hints = $ind->evidenceHints()) !== [])
+                            <div class="rounded-md border border-info/25 bg-info-soft/30 px-3 py-2.5">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-info">Bukti dukung yang diminta</p>
+                                <ol class="mt-1.5 list-decimal space-y-0.5 pl-5 text-xs leading-relaxed marker:font-semibold marker:text-info">
+                                    @foreach ($hints as $hint)
+                                        <li>{{ $hint }}</li>
+                                    @endforeach
+                                </ol>
+                            </div>
+                        @endif
+                    </div>
+                </article>
+            @empty
+                <p class="text-sm text-muted-foreground">Belum ada indikator pada aspek ini.</p>
+            @endforelse
+        </div>
+
+        {{-- ============ CARD KANAN: penilaian evaluator ============ --}}
+        <div class="lg:col-span-5">
+            <div class="sticky top-4 space-y-4">
+                <div class="rounded-lg border border-warning/30 bg-warning-soft/60 px-4 py-3">
+                    <p class="text-xs font-bold uppercase tracking-wide text-warning">
+                        <x-ui.icon name="star" class="inline h-3.5 w-3.5" /> Penilaian Evaluator
+                    </p>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                        Berikan satu nilai 0-5 dan catatan untuk tiap indikator, berdasarkan bukti dukung di samping.
+                    </p>
                 </div>
 
-                @if (! empty ($ind->rubric_scales))
-                    <div class="rubric-box mb-4">
-                        <p class="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-info">
-                            <x-ui.icon name="file-text" class="h-4 w-4" /> Panduan Rubrik Penilaian (Keputusan Bupati Pasaman)
-                        </p>
-                        <div class="overflow-hidden rounded-lg border border-info/25 bg-card">
-                            <table class="w-full border-collapse text-sm">
-                                <thead>
-                                    <tr class="border-b border-info/25 bg-info-soft/50 text-left">
-                                        <th scope="col" class="w-16 px-3 py-2 text-center font-semibold">Skala</th>
-                                        <th scope="col" class="px-3 py-2 font-semibold">Kriteria Penilaian</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-border">
-                                    @foreach ($ind->rubric_scales as $scale => $desc)
-                                        <tr @class([
-                                            'align-top',
-                                            'bg-success-soft/40' => (int) $scale === 5,
-                                            'bg-danger-soft/40' => (int) $scale === 0,
-                                        ])>
-                                            <td class="px-3 py-2.5 text-center">
-                                                <x-ui.badge :variant="match ((int) $scale) {
-                                                    5 => 'success',
-                                                    0 => 'danger',
-                                                    default => 'outline',
-                                                }" class="tabular-nums">{{ $scale }}</x-ui.badge>
-                                            </td>
-                                            <td class="px-3 py-2.5 leading-relaxed">{{ $desc }}</td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
+                @forelse ($asp->indicators as $ind)
+                    @php
+                        $current = old('scores.'.$ind->id, $scores[$ind->id] ?? '');
+                        $rubric = (array) $ind->rubric_scales;
+                    @endphp
+                    <div class="rounded-lg border bg-card p-4">
+                        <p class="text-sm font-semibold leading-snug">Indikator {{ $ind->number }} — {{ $ind->name }}</p>
+
+                        <div class="mt-3 space-y-3">
+                            <div class="space-y-1.5">
+                                <label class="label" for="score-{{ $ind->id }}">
+                                    Nilai (0-5)
+                                    <span class="font-normal text-muted-foreground">— pilih sesuai kriteria yang terpenuhi</span>
+                                </label>
+
+                                {{-- Nilai & kriteria rubrik digabung dalam satu pilihan --}}
+                                <select id="score-{{ $ind->id }}" name="scores[{{ $ind->id }}]"
+                                    data-f02-score data-indicator="{{ $ind->number }}"
+                                    class="select w-full @error('scores.'.$ind->id) input-invalid @enderror">
+                                    <option value="" @selected((string) $current === '')>
+                                        — belum dinilai —
+                                    </option>
+                                    @for ($i = 0; $i <= 5; $i++)
+                                        <option value="{{ $i }}" @selected((string) $current === (string) $i)>
+                                            {{ $i }} — {{ $rubric[$i] ?? 'belum ada kriteria' }}
+                                        </option>
+                                    @endfor
+                                </select>
+
+                                @error('scores.'.$ind->id)
+                                    <p class="field-error">{{ $message }}</p>
+                                @enderror
+                            </div>
+
+                            {{-- Pratinjau kriteria nilai yang dipilih --}}
+                            <div class="rounded-md border border-info/25 bg-info-soft/30 px-3 py-2"
+                                data-f02-score-preview>
+                                @if ((string) $current !== '' && isset($rubric[(int) $current]))
+                                    <div class="flex gap-2">
+                                        <span class="shrink-0 rounded bg-info px-1.5 text-sm font-bold text-white tabular-nums">{{ $current }}</span>
+                                        <p class="text-xs leading-relaxed">{{ $rubric[(int) $current] }}</p>
+                                    </div>
+                                @else
+                                    <p class="text-xs italic text-muted-foreground">
+                                        Belum ada nilai dipilih. Kriteria tiap nilai (0-5) tampil pada daftar pilihan di atas.
+                                    </p>
+                                @endif
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="label" for="notes-{{ $ind->id }}">Catatan Penilai</label>
+                                <textarea id="notes-{{ $ind->id }}" name="notes[{{ $ind->id }}]" rows="2" class="textarea input-sm"
+                                    placeholder="Catatan/kondisi indikator ini...">{{ old('notes.'.$ind->id, $evaluatorNotes[$ind->id] ?? '') }}</textarea>
+                            </div>
                         </div>
                     </div>
-                @endif
-
-                <div class="space-y-4">
-                    @forelse ($ind->f01Questions as $q)
-                        @php
-                            $ans = $f01Answers->get($q->id);
-                            $answer = $ans?->answer_value;
-                            $answerText = is_array($answer)
-                                ? implode(', ', array_map('strval', $answer))
-                                : (string) ($answer ?? '');
-                        @endphp
-                        <div class="rounded-lg border">
-                            <div class="flex items-start gap-2.5 border-b bg-muted/20 px-4 py-3">
-                                <x-ui.badge variant="primary" class="mt-0.5 shrink-0">{{ $q->question_code }}</x-ui.badge>
-                                <p class="text-sm font-medium leading-relaxed">{{ $q->question_text }}</p>
-                            </div>
-
-                            <div class="grid gap-4 p-4 lg:grid-cols-12">
-                                {{-- Isian F-01 read-only --}}
-                                <div class="lg:col-span-7">
-                                    <p class="mb-1 text-xs font-bold text-success"><x-ui.icon name="eye" class="inline h-3.5 w-3.5" /> Jawaban F-01 Unit Layanan</p>
-                                    @if ($answerText !== '')
-                                        <p class="rounded bg-success-soft/50 px-3 py-2 text-sm font-medium">{{ $answerText }}</p>
-                                    @else
-                                        <p class="text-sm italic text-muted-foreground">Belum diisi unit layanan.</p>
-                                    @endif
-
-                                    @if (! empty ($ans?->drive_link))
-                                        <a href="{{ $ans->drive_link }}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm mt-2 truncate text-success">
-                                            <x-ui.icon name="external" class="h-4 w-4" /> Buka Bukti Dukung (Google Drive)
-                                        </a>
-                                    @else
-                                        <p class="mt-1 text-xs italic text-muted-foreground">Belum ada tautan Google Drive.</p>
-                                    @endif
-                                </div>
-
-                                {{-- Skor penilai --}}
-                                <div class="lg:col-span-5">
-                                    <div class="rounded-lg border border-warning/30 bg-warning-soft/60 p-3">
-                                        <x-ui.field label="Skor (0-5)" name="scores_{{ $q->id }}">
-                                            <x-ui.select name="scores[{{ $q->id }}]" class="text-center font-bold">
-                                                @for ($i = 0; $i <= 5; $i++)
-                                                    <option value="{{ $i }}" @selected((int) ($scores[$q->id] ?? 0) === $i)>{{ $i }}</option>
-                                                @endfor
-                                            </x-ui.select>
-                                        </x-ui.field>
-                                        <x-ui.field label="Catatan" name="notes_{{ $q->id }}" class="mt-3">
-                                            <x-ui.textarea name="notes[{{ $q->id }}]" rows="2" class="input-sm"
-                                                placeholder="Catatan/rekomendasi untuk butir ini...">{{ $evaluatorNotes[$q->id] ?? '' }}</x-ui.textarea>
-                                        </x-ui.field>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    @empty
-                        <p class="text-sm italic text-muted-foreground">Tidak ada sub-pertanyaan F-01 pada indikator ini.</p>
-                    @endforelse
-                </div>
+                @empty
+                    <p class="text-sm italic text-muted-foreground">Belum ada indikator pada aspek ini.</p>
+                @endforelse
             </div>
-        @empty
-            <p class="text-sm text-muted-foreground">Belum ada indikator pada aspek ini.</p>
-        @endforelse
+        </div>
     </div>
 </div>

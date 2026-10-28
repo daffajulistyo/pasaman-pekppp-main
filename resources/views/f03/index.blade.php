@@ -91,8 +91,6 @@
             </div>
         </form>
     @endif
-</x-layouts.admin>
-
 @push('scripts')
     <script>
         document.addEventListener('DOMContentLoaded', function () {
@@ -118,3 +116,4 @@
         });
     </script>
 @endpush
+</x-layouts.admin>

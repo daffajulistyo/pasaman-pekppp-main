@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BapSignatureController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EvaluationController;
 use App\Http\Controllers\EvaluationPeriodController;
@@ -24,6 +25,12 @@ Route::get('/', function () {
         : redirect()->route('login');
 })->name('home');
 
+// Tanda tangan Berita Acara lewat tautan bertoken (tanpa login).
+Route::middleware('throttle:60,1')->group(function () {
+    Route::get('/bap/ttd/{token}', [BapSignatureController::class, 'show'])->name('bap.ttd.show');
+    Route::post('/bap/ttd/{token}', [BapSignatureController::class, 'store'])->name('bap.ttd.store');
+});
+
 /*
 |--------------------------------------------------------------------------
 | RUTE AUTENTIKASI (login memakai username)
@@ -44,6 +51,7 @@ Route::middleware('auth')->group(function () {
     // Instrumen PEKPPP - F-01 Penilaian Mandiri (hanya Unit Layanan / OPD)
     Route::middleware('role:opd')->group(function () {
         Route::get('/f01', [F01Controller::class, 'index'])->name('f01.index');
+        Route::get('/f01/aspek/{aspect:code}', [F01Controller::class, 'aspect'])->name('f01.aspect');
         Route::post('/f01/simpan-draft', [F01Controller::class, 'saveDraft'])->name('f01.save_draft');
         Route::post('/f01/kirim', [F01Controller::class, 'submit'])->name('f01.submit');
     });
@@ -65,6 +73,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/laporan', [ReportController::class, 'index'])->name('laporan.index');
         Route::get('/laporan/berita-acara/{evaluation}', [ReportController::class, 'beritaAcara'])->name('laporan.berita_acara');
         Route::post('/laporan/berita-acara/{evaluation}/tanda-tangan', [ReportController::class, 'simpanTandaTangan'])->name('laporan.berita_acara.simpan');
+        Route::post('/bap/{evaluation}/ttd/{role}/token-baru', [ReportController::class, 'regenerateSignerToken'])->name('bap.ttd.regenerate');
         Route::get('/laporan/rekapitulasi/{evaluation}', [ReportController::class, 'rekapitulasi'])->name('laporan.rekapitulasi');
         Route::get('/arsip', [ReportController::class, 'arsip'])->name('arsip.index');
     });

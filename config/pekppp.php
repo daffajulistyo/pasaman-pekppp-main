@@ -44,6 +44,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Ambang rekomendasi Berita Acara
+    |   Digunakan untuk menyusun kalimat rekomendasi otomatis berdasarkan
+    |   nilai rata-rata F-02 tiap aspek (skala 0 - 5).
+    |--------------------------------------------------------------------------
+    */
+    'rekomendasi' => [
+        'tinggi' => 4.50, // >= 4,50 sangat baik
+        'baik' => 4.00,   // >= 4,00 baik
+        'cukup' => 3.00,  // >= 3,00 cukup baik
+        'rendah' => 2.00, // >= 2,00 rendah
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Pilihan warna aksen (customizer tampilan)
     |--------------------------------------------------------------------------
     */

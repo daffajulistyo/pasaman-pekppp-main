@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Aspect;
+use App\Models\BapSigner;
 use App\Models\Evaluation;
 use App\Models\EvaluationPeriod;
-use App\Models\F01Answer;
-use App\Models\F02Score;
+use App\Models\F01AspectLink;
 use App\Models\Opd;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -45,15 +45,47 @@ class ReportController extends Controller
 
         return view('laporan.berita-acara', [
             'evaluation' => $evaluation,
-            'recap' => $evaluation->f02RecapByAspect(),
             'baNomor' => $evaluation->ba_nomor ?: $this->defaultNomorBa($evaluation),
             'baTempat' => $evaluation->ba_tempat ?: config('pekppp.ttd.tempat', 'Lubuk Sikaping'),
             'baTanggal' => $evaluation->ba_tanggal ?? $evaluation->evaluated_at ?? now(),
+            'kondisi' => $evaluation->kondisiText(),
+            'rekomendasi' => $evaluation->rekomendasiText(),
+            'bapRows' => $evaluation->bapRows(),
+            'unitName' => $evaluation->opd?->name,
+            'signers' => collect(BapSigner::roleLabels())
+                ->mapWithKeys(fn ($label, $role) => [$role => $evaluation->signer($role)])
+                ->all(),
         ]);
     }
 
     /**
-     * Simpan identitas Berita Acara & penanda tangan pada sesi evaluasi.
+     * Buat ulang tautan tanda tangan publik untuk satu peran penanda tangan.
+     * Tanda tangan lama otomatis dihapus agar dapat diisi ulang.
+     */
+    public function regenerateSignerToken(Request $request, Evaluation $evaluation, string $role): RedirectResponse
+    {
+        abort_unless(in_array($role, BapSigner::ROLES, true), 404);
+
+        if ($evaluation->isPeriodLocked()) {
+            return back()->with('error', 'Periode penilaian sudah dikunci. Tautan tanda tangan tidak dapat diubah.');
+        }
+
+        $signer = $evaluation->signer($role);
+
+        $signer->update([
+            'token' => BapSigner::generateToken(),
+            'nama' => null,
+            'nip' => null,
+            'jabatan' => null,
+            'signature_data' => null,
+            'signed_at' => null,
+        ]);
+
+        return back()->with('success', 'Tautan tanda tangan '.$signer->label().' berhasil dibuat ulang. Tanda tangan sebelumnya dihapus.');
+    }
+
+    /**
+     * Simpan identitas Berita Acara (nomor, tempat, tanggal).
      */
     public function simpanTandaTangan(Request $request, Evaluation $evaluation): RedirectResponse
     {
@@ -61,46 +93,32 @@ class ReportController extends Controller
             'ba_nomor' => ['nullable', 'string', 'max:150'],
             'ba_tempat' => ['nullable', 'string', 'max:100'],
             'ba_tanggal' => ['nullable', 'date'],
-            'pejabat_nama' => ['nullable', 'string', 'max:150'],
-            'pejabat_jabatan' => ['nullable', 'string', 'max:150'],
-            'pejabat_nip' => ['nullable', 'string', 'max:50'],
-            'penilai_nama' => ['nullable', 'string', 'max:150'],
-            'penilai_jabatan' => ['nullable', 'string', 'max:150'],
-            'penilai_nip' => ['nullable', 'string', 'max:50'],
         ], [
             'ba_tanggal.date' => 'Tanggal Berita Acara tidak valid.',
         ]);
 
-        $evaluation->fill($data)->save();
+        $evaluation->update($data);
 
         return redirect()
             ->route('laporan.berita_acara', $evaluation)
-            ->with('success', 'Identitas Berita Acara dan penanda tangan berhasil disimpan.');
+            ->with('success', 'Identitas Berita Acara berhasil disimpan. Nama dan tanda tangan diisi penanda tangan melalui tautan publik.');
     }
 
     /**
-     * Rekapitulasi skor F-02 per aspek, indikator, dan butir (siap cetak).
+     * Rekapitulasi nilai F-02 per aspek dan indikator (siap cetak).
      */
     public function rekapitulasi(Evaluation $evaluation): View
     {
-        $evaluation->load('opd');
-
-        $scores = F02Score::with('question')
-            ->where('evaluation_id', $evaluation->id)
-            ->get()
-            ->keyBy('f01_question_id');
-
-        $answers = F01Answer::where('evaluation_id', $evaluation->id)
-            ->get()
-            ->keyBy('f01_question_id');
-
-        $recap = $evaluation->f02RecapByAspect();
+        $evaluation->load(['opd', 'evaluator', 'bapSigners']);
 
         return view('laporan.rekapitulasi', [
             'evaluation' => $evaluation,
-            'recap' => $recap,
-            'scores' => $scores,
-            'answers' => $answers,
+            'recap' => $evaluation->f02RecapByAspect(),
+            'rekapRows' => $evaluation->rekapRows(),
+            'aspectLinks' => F01AspectLink::where('evaluation_id', $evaluation->id)
+                ->whereNotNull('drive_link')
+                ->pluck('drive_link', 'aspect_id')
+                ->all(),
             'baNomor' => $evaluation->ba_nomor ?: $this->defaultNomorBa($evaluation),
             'baTempat' => $evaluation->ba_tempat ?: config('pekppp.ttd.tempat', 'Lubuk Sikaping'),
             'baTanggal' => $evaluation->ba_tanggal ?? $evaluation->evaluated_at ?? now(),

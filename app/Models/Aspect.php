@@ -20,4 +20,17 @@ class Aspect extends Model
     {
         return $this->hasMany(Indicator::class)->orderBy('number');
     }
+
+    /**
+     * Aspek yang dinilai pada F-02 (aspek tambahan berbobot 0 tidak dinilai).
+     */
+    public function requiresDriveLink(): bool
+    {
+        return (float) $this->weight > 0;
+    }
+
+    public function f01Links()
+    {
+        return $this->hasMany(F01AspectLink::class);
+    }
 }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 
 class Evaluation extends Model
 {
@@ -64,36 +65,64 @@ class Evaluation extends Model
         return $this->hasMany(F01Answer::class);
     }
 
-    public function f02Scores()
+    /**
+     * Tautan bukti dukung per aspek.
+     */
+    public function f01Links()
     {
-        return $this->hasMany(F02Score::class);
+        return $this->hasMany(F01AspectLink::class);
     }
 
     /**
-     * Hitung total skor F02, F03, IPP dan kategori sesuai regulasi Pasaman
+     * Penilaian F-02 per indikator.
+     */
+    public function f02IndicatorScores()
+    {
+        return $this->hasMany(F02IndicatorScore::class);
+    }
+
+    public function bapSigners()
+    {
+        return $this->hasMany(BapSigner::class);
+    }
+
+    /**
+     * Penanda tangan Berita Acara untuk satu peran, dibuat bila belum ada.
+     */
+    public function signer(string $role): BapSigner
+    {
+        return $this->bapSigners()->firstOrCreate(
+            ['role' => $role],
+            ['token' => BapSigner::generateToken()],
+        );
+    }
+
+    /**
+     * Hitung total skor F02, F03, IPP dan kategori sesuai regulasi Pasaman.
+     *
+     * Skor F-02 kini dihitung dari nilai per indikator (0-5):
+     * nilai indikator -> rata-rata aspek -> dikali bobot aspek.
      */
     public function recalculateScores(): void
     {
-        // 1. Skor F-02 dihitung berjenjang dari skor per butir pertanyaan F-01:
-        //    skor butir -> rata-rata skor indikator -> rata-rata skor aspek -> terbobot per aspek.
-        $scoresByQuestion = F02Score::where('evaluation_id', $this->id)
-            ->pluck('score', 'f01_question_id');
+        $scoresByIndicator = F02IndicatorScore::where('evaluation_id', $this->id)
+            ->pluck('score', 'indicator_id');
 
-        $aspects = Aspect::with(['indicators.f01Questions'])->where('weight', '>', 0)->get();
+        $aspects = Aspect::with('indicators')->where('weight', '>', 0)->get();
         $totalF02Score = 0;
 
         foreach ($aspects as $aspect) {
-            $aspectQuestionIds = $aspect->indicators
-                ->flatMap(fn ($indicator) => $indicator->f01Questions->pluck('id'));
+            $indicatorIds = $aspect->indicators->pluck('id');
+            $scores = $scoresByIndicator->only($indicatorIds);
 
-            if ($aspectQuestionIds->isEmpty()) {
+            if ($scores->isEmpty()) {
                 continue;
             }
 
-            $avgAspectScore = $scoresByQuestion->only($aspectQuestionIds)->avg() ?? 0;
+            $avgAspectScore = (float) $scores->avg();
 
             // Bobot aspek (misal 24% = 0.24)
-            $totalF02Score += ($avgAspectScore * ($aspect->weight / 100));
+            $totalF02Score += ($avgAspectScore * ((float) $aspect->weight / 100));
         }
 
         $this->score_f02 = round($totalF02Score, 4);
@@ -114,48 +143,68 @@ class Evaluation extends Model
     }
 
     /**
-     * Rekap skor F-02 berjenjang per aspek (dan indikator di dalamnya).
+     * Nilai F-02 per aspek (hanya aspek berbobot yang memiliki nilai).
+     *
+     * @return array<string, array{average: float, scored: int, total: int}>
+     */
+    public function aspectScores(): array
+    {
+        $scoresByIndicator = F02IndicatorScore::where('evaluation_id', $this->id)
+            ->pluck('score', 'indicator_id');
+
+        $result = [];
+
+        foreach ($this->weightedAspects() as $aspect) {
+            $indicatorIds = $aspect->indicators->pluck('id');
+            $scores = $scoresByIndicator->only($indicatorIds);
+
+            $result[$aspect->code] = [
+                'average' => $scores->isEmpty() ? 0.0 : round((float) $scores->avg(), 4),
+                'scored' => $scores->count(),
+                'total' => $indicatorIds->count(),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Rekap skor F-02 berjenjang per aspek dan indikator.
      *
      * @return array<int, array{
-     *     aspect: \App\Models\Aspect,
-     *     questions: int,
+     *     aspect: Aspect,
+     *     indicators: int,
      *     scored: int,
      *     average: float,
      *     weighted: float,
-     *     indicators: array<int, array{indicator: \App\Models\Indicator, questions: int, scored: int, average: float}>
+     *     indicator_rows: array<int, array{indicator: Indicator, score: int|null, notes: string|null}>
      * }>
      */
     public function f02RecapByAspect(): array
     {
-        $scoresByQuestion = F02Score::where('evaluation_id', $this->id)
-            ->pluck('score', 'f01_question_id');
-
-        $aspects = Aspect::with(['indicators.f01Questions'])
-            ->where('weight', '>', 0)
-            ->orderBy('order')
-            ->get();
+        $scoresByIndicator = F02IndicatorScore::where('evaluation_id', $this->id)
+            ->get()
+            ->keyBy('indicator_id');
 
         $recap = [];
 
-        foreach ($aspects as $aspect) {
-            $indicators = [];
-            $questionCount = 0;
+        foreach ($this->weightedAspects() as $aspect) {
+            $rows = [];
             $scoreSum = 0.0;
             $scored = 0;
 
             foreach ($aspect->indicators as $indicator) {
-                $questionIds = $indicator->f01Questions->pluck('id');
-                $scores = $scoresByQuestion->only($questionIds);
+                $score = $scoresByIndicator->get($indicator->id);
 
-                $questionCount += $questionIds->count();
-                $scoreSum += (float) $scores->sum();
-                $scored += $scores->count();
+                if ($score !== null) {
+                    $scoreSum += (float) $score->score;
+                    $scored++;
+                }
 
-                $indicators[] = [
+                $rows[] = [
                     'indicator' => $indicator,
-                    'questions' => $questionIds->count(),
-                    'scored' => $scores->count(),
-                    'average' => $scores->count() > 0 ? round((float) $scores->avg(), 4) : 0.0,
+                    'score' => $score?->score,
+                    'notes' => $score?->notes,
                 ];
             }
 
@@ -163,15 +212,309 @@ class Evaluation extends Model
 
             $recap[] = [
                 'aspect' => $aspect,
-                'questions' => $questionCount,
+                'indicators' => $aspect->indicators->count(),
                 'scored' => $scored,
                 'average' => $average,
                 'weighted' => round($average * ((float) $aspect->weight / 100), 4),
-                'indicators' => $indicators,
+                'indicator_rows' => $rows,
             ];
         }
 
         return $recap;
+    }
+
+    /**
+     * Baris rekapitulasi F-02 per aspek: nilai aspek (rata-rata indikator),
+     * nilai terbobot, dan catatan penilai yang digabung per aspek.
+     *
+     * @return array<int, array{
+     *     nomor: int,
+     *     aspect: Aspect,
+     *     weight: float,
+     *     indicators: int,
+     *     scored: int,
+     *     average: float,
+     *     weighted: float,
+     *     notes: string
+     * }>
+     */
+    public function rekapRows(): array
+    {
+        $rows = [];
+
+        foreach ($this->f02RecapByAspect() as $index => $aspectRow) {
+            $catatan = [];
+
+            foreach ($aspectRow['indicator_rows'] as $indicatorRow) {
+                if (filled($indicatorRow['notes'])) {
+                    $catatan[] = trim((string) $indicatorRow['notes']);
+                }
+            }
+
+            $rows[] = [
+                'nomor' => $index + 1,
+                'aspect' => $aspectRow['aspect'],
+                'weight' => (float) $aspectRow['aspect']->weight,
+                'indicators' => $aspectRow['indicators'],
+                'scored' => $aspectRow['scored'],
+                'average' => $aspectRow['average'],
+                'weighted' => $aspectRow['weighted'],
+                'notes' => $catatan === []
+                    ? '—'
+                    : preg_replace('/[.\s]+$/u', '', implode(' ', $catatan)).'.',
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Baris tabel Berita Acara per aspek, mengikuti format contoh BAP:
+     * Nomor | Kondisi | Catatan | Rekomendasi.
+     *
+     * - Kondisi   : "4. kriteria rubrik." untuk tiap indikator pada aspek,
+     *               digabung dengan koma.
+     * - Catatan   : catatan penilai tiap indikator, digabung menjadi paragraf.
+     * - Rekomendasi: kalimat "Agar ..." yang digenerate dari nilai terendah.
+     *
+     * @return array<int, array{
+     *     nomor: int,
+     *     aspek: string,
+     *     kondisi: string,
+     *     catatan: string,
+     *     rekomendasi: string
+     * }>
+     */
+    public function bapRows(): array
+    {
+        $recap = $this->f02RecapByAspect();
+        $rows = [];
+
+        foreach ($recap as $index => $aspectRow) {
+            $kondisi = [];
+            $catatan = [];
+
+            foreach ($aspectRow['indicator_rows'] as $indicatorRow) {
+                $indicator = $indicatorRow['indicator'];
+                $score = $indicatorRow['score'];
+
+                if ($score === null) {
+                    continue;
+                }
+
+                $kondisi[] = $score.'. '.$this->rubricTextFor($indicator, (int) $score);
+
+                if (filled($indicatorRow['notes'])) {
+                    $catatan[] = trim((string) $indicatorRow['notes']);
+                }
+            }
+
+            $rows[] = [
+                'nomor' => $index + 1,
+                'aspek' => $aspectRow['aspect']->name,
+                'kondisi' => $kondisi === [] ? 'Belum ada nilai F-02.' : implode(', ', $kondisi),
+                'catatan' => $catatan === [] ? '—' : preg_replace('/[.\s]+$/u', '', implode(' ', $catatan)).'.',
+                'rekomendasi' => $this->rekomendasiForAspect($aspectRow),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Teks kriteria rubrik untuk satu nilai pada satu indikator.
+     */
+    private function rubricTextFor(Indicator $indicator, int $score): string
+    {
+        $scales = (array) $indicator->rubric_scales;
+        $text = trim((string) ($scales[$score] ?? ''));
+
+        if ($text === '') {
+            return 'Tanpa keterangan kriteria.';
+        }
+
+        return rtrim($text, '. ').'.';
+    }
+
+    /**
+     * Rekomendasi satu aspek untuk tabel Berita Acara: kalimat "Agar ..."
+     * yang menyasar indikator bernilai terendah.
+     *
+     * @param  array{aspect: Aspect, indicator_rows: array<int, array{indicator: Indicator, score: int|null, notes: string|null}>}  $aspectRow
+     */
+    private function rekomendasiForAspect(array $aspectRow): string
+    {
+        $scored = array_values(array_filter(
+            $aspectRow['indicator_rows'],
+            fn ($row) => $row['score'] !== null
+        ));
+
+        if ($scored === []) {
+            return 'Agar aspek ini segera dinilai dan dilengkapi bukti dukungnya.';
+        }
+
+        $lowest = $scored[0];
+        foreach ($scored as $row) {
+            if ((int) $row['score'] < (int) $lowest['score']) {
+                $lowest = $row;
+            }
+        }
+
+        $aspectName = $aspectRow['aspect']->name;
+        $score = (int) $lowest['score'];
+        $indicatorName = $lowest['indicator']->name;
+
+        if ($score >= 5) {
+            return 'Agar capaian '.$aspectName.' yang sudah optimal dipertahankan dan dijadikan contoh bagi aspek lainnya.';
+        }
+
+        $target = $score + 1;
+        $nextCriteria = trim((string) (((array) $lowest['indicator']->rubric_scales)[$target] ?? ''));
+
+        $line = 'Agar indikator "'.$indicatorName.'" ditingkatkan dari nilai '.$score.' menjadi nilai '.$target;
+
+        if ($nextCriteria !== '') {
+            $line .= ', yaitu '.rtrim($nextCriteria, '. ');
+        }
+
+        return $line.'.';
+    }
+
+    /**
+     * Teks "Kondisi" Berita Acara: nilai rata-rata F-02 tiap aspek, dipisah koma.
+     */
+    public function kondisiText(): string
+    {
+        $scores = $this->aspectScores();
+
+        $parts = [];
+
+        foreach ($this->weightedAspects() as $aspect) {
+            $row = $scores[$aspect->code] ?? null;
+
+            if ($row === null || $row['scored'] === 0) {
+                continue;
+            }
+
+            $parts[] = $aspect->name.' '.$this->formatNilai($row['average']);
+        }
+
+        if ($parts === []) {
+            return 'Belum ada nilai F-02.';
+        }
+
+        return implode(', ', $parts).'.';
+    }
+
+    /**
+     * Teks "Rekomendasi" Berita Acara, digenerate dari nilai dan catatan penilai.
+     *
+     * @return array<int, string>
+     */
+    public function rekomendasiText(): array
+    {
+        $scores = $this->aspectScores();
+        $config = config('pekppp.rekomendasi');
+        $lines = [];
+
+        foreach ($this->weightedAspects() as $aspect) {
+            $row = $scores[$aspect->code] ?? null;
+
+            if ($row === null || $row['scored'] === 0) {
+                continue;
+            }
+
+            $average = $row['average'];
+            $nilai = $this->formatNilai($average);
+            $lowest = $this->lowestScoredIndicator($aspect);
+            $priority = $lowest
+                ? 'prioritas indikator '.$lowest['indicator']->name.' (nilai '.$lowest['score'].')'
+                : 'seluruh indikator pada aspek ini';
+
+            if ($average >= $config['tinggi']) {
+                $line = 'Kinerja aspek '.$aspect->name.' sangat baik ('.$nilai.'). '
+                    .'Capaian ini agar dipertahankan atau ditingkatkan pada periode berikutnya.';
+            } elseif ($average >= $config['baik']) {
+                $line = 'Kinerja aspek '.$aspect->name.' baik ('.$nilai.'). '
+                    .'Agar dipertahankan atau ditingkatkan, dengan penyempurnaan pada '.$priority.'.';
+            } elseif ($average >= $config['cukup']) {
+                $line = 'Kinerja aspek '.$aspect->name.' cukup baik ('.$nilai.'). '
+                    .'Perlu peningkatan pada '.$priority.'.';
+            } elseif ($average >= $config['rendah']) {
+                $line = 'Aspek '.$aspect->name.' masih rendah ('.$nilai.'). '
+                    .'Perlu perbaikan menyeluruh dengan '.$priority.'.';
+            } else {
+                $line = 'Aspek '.$aspect->name.' sangat rendah ('.$nilai.'). '
+                    .'Perlu pembinaan dan pendampingan intensif, '.$priority.'.';
+            }
+
+            if ($lowest && filled($lowest['notes'])) {
+                $line .= ' Catatan penilai: '.trim((string) $lowest['notes']);
+            }
+
+            $lines[] = $line;
+        }
+
+        $lines[] = $this->rekomendasiPenutup();
+
+        return $lines;
+    }
+
+    /**
+     * Kalimat penutup rekomendasi berdasarkan predikat IPP.
+     */
+    private function rekomendasiPenutup(): string
+    {
+        $category = $this->category_ipp
+            ?? self::determineCategory((float) $this->final_score_ipp)[0];
+
+        return match ($category) {
+            'A', 'A-', 'B' => 'Secara keseluruhan, kinerja pelayanan unit ini sudah baik dan agar dipertahankan serta ditingkatkan.',
+            'B-', 'C', 'C-' => 'Secara keseluruhan, kinerja pelayanan unit ini perlu perbaikan sesuai catatan penilai.',
+            default => 'Secara keseluruhan, unit layanan ini masih memerlukan pembinaan dan pendampingan intensif.',
+        };
+    }
+
+    /**
+     * Indikator dengan nilai terendah pada satu aspek beserta catatannya.
+     *
+     * @return array{indicator: Indicator, score: int, notes: string|null}|null
+     */
+    private function lowestScoredIndicator(Aspect $aspect): ?array
+    {
+        $scores = F02IndicatorScore::where('evaluation_id', $this->id)
+            ->whereIn('indicator_id', $aspect->indicators->pluck('id'))
+            ->orderBy('score')
+            ->orderBy('id')
+            ->first();
+
+        if (! $scores) {
+            return null;
+        }
+
+        return [
+            'indicator' => $scores->indicator,
+            'score' => (int) $scores->score,
+            'notes' => $scores->notes,
+        ];
+    }
+
+    /**
+     * Aspek yang dinilai pada F-02 (bobot > 0), terurut.
+     *
+     * @return Collection<int, Aspect>
+     */
+    private function weightedAspects(): Collection
+    {
+        return Aspect::with('indicators.f01Questions')
+            ->where('weight', '>', 0)
+            ->orderBy('order')
+            ->get();
+    }
+
+    private function formatNilai(float $value): string
+    {
+        return number_format($value, 2, ',', '.');
     }
 
     public static function determineCategory(float $score): array

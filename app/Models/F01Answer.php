@@ -13,7 +13,6 @@ class F01Answer extends Model
         'evaluation_id',
         'f01_question_id',
         'answer_value',
-        'drive_link',
         'opd_note',
     ];
 

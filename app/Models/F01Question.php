@@ -17,13 +17,11 @@ class F01Question extends Model
         'options',
         'help_text',
         'evidence_hint',
-        'requires_drive_link',
         'order',
     ];
 
     protected $casts = [
         'options' => 'array',
-        'requires_drive_link' => 'boolean',
     ];
 
     public function indicator()

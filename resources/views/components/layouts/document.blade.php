@@ -33,6 +33,8 @@
     .data-table td.right { text-align: right; white-space: nowrap; }
     .data-table tbody tr.subtotal td { background-color: #fafbfc; font-weight: bold; }
     .data-table .aspek-row td { background-color: #eef2f0; font-weight: bold; }
+    .bap-table td { text-align: justify; line-height: 1.4; }
+    .bap-table .bap-cell { margin: 0; text-align: justify; }
     .muted { color: #6c757d; }
     .text-center { text-align: center; }
 

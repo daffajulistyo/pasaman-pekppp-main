@@ -1603,7 +1603,6 @@ class PekpppMasterDataSeeder extends Seeder
                     'options' => $q['options'] ?? null,
                     'help_text' => null,
                     'evidence_hint' => $q['evidence_hint'] ?? 'Tautan Link Google Drive Dokumen Bukti Dukung',
-                    'requires_drive_link' => true,
                     'order' => $idx + 1,
                 ]
             );

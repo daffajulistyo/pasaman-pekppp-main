@@ -7,9 +7,11 @@ use App\Models\Aspect;
 use App\Models\Evaluation;
 use App\Models\EvaluationPeriod;
 use App\Models\F01Answer;
+use App\Models\F01AspectLink;
 use App\Models\F01Question;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 class F01Controller extends Controller
@@ -17,46 +19,68 @@ class F01Controller extends Controller
     use NormalizesAnswerInput;
 
     /**
-     * Formulir F-01: Penilaian Mandiri Pelayanan Publik.
+     * Halaman daftar aspek F-01 beserta progres pengisian masing-masing.
      */
     public function index(): View
     {
         $evaluation = $this->resolveEvaluation();
-        $period = EvaluationPeriod::current();
+        $aspects = $this->aspects();
 
-        $answers = [];
-        $driveLinks = [];
-        $opdNotes = [];
-
-        if ($evaluation) {
-            foreach (F01Answer::where('evaluation_id', $evaluation->id)->get() as $answer) {
-                $answers[$answer->f01_question_id] = $answer->answer_value;
-                $driveLinks[$answer->f01_question_id] = $answer->drive_link;
-                $opdNotes[$answer->f01_question_id] = $answer->opd_note;
-            }
-        }
-
-        $aspects = Aspect::with(['indicators.f01Questions'])->orderBy('order')->get();
-        $activeAspectCode = request('aspek') ?: $aspects->first()?->code;
+        $answers = $this->answers($evaluation);
+        $links = $this->links($evaluation);
 
         return view('f01.index', [
             'evaluation' => $evaluation,
             'locked' => $evaluation?->isLockedForOpdInput() ?? false,
-            'period' => $period,
-            'periodOpen' => $period !== null,
+            'periodOpen' => EvaluationPeriod::current() !== null,
             'periodStatus' => $this->resolvePeriodStatus(),
-            'answers' => $answers,
-            'driveLinks' => $driveLinks,
-            'opdNotes' => $opdNotes,
-            'aspects' => $aspects,
-            'activeAspectCode' => $activeAspectCode,
-            'currentAspect' => $aspects->firstWhere('code', $activeAspectCode),
-            'stats' => $this->completionStats($answers, $driveLinks),
+            'aspectCards' => $this->aspectCards($aspects, $answers, $links),
+            'stats' => $this->completionStats($aspects, $answers, $links),
         ]);
     }
 
     /**
-     * Simpan seluruh isian F-01 sebagai draft.
+     * Halaman detail satu aspek: seluruh butir pertanyaan aspek tersebut.
+     */
+    public function aspect(Aspect $aspect): View|RedirectResponse
+    {
+        $evaluation = $this->resolveEvaluation();
+
+        if (! $evaluation) {
+            return redirect()
+                ->route('f01.index')
+                ->with('error', $this->periodClosedMessage());
+        }
+
+        $aspect->load(['indicators.f01Questions']);
+
+        $questions = $aspect->indicators->flatMap->f01Questions;
+        $answers = $this->answers($evaluation, $questions->pluck('id')->all());
+        $links = $this->links($evaluation);
+        $link = $links->get($aspect->id);
+
+        [$prev, $next] = $this->siblingAspects($aspect);
+
+        return view('f01.aspect', [
+            'evaluation' => $evaluation,
+            'aspect' => $aspect,
+            'locked' => $evaluation->isLockedForOpdInput(),
+            'periodOpen' => EvaluationPeriod::current() !== null,
+            'periodStatus' => $this->resolvePeriodStatus(),
+            'answers' => $answers,
+            'driveLink' => $link,
+            'prevAspect' => $prev,
+            'nextAspect' => $next,
+            'stats' => $this->completionStats($this->aspects(), $this->answers($evaluation), $links),
+            'aspectStats' => [
+                'total' => $questions->count(),
+                'answered' => $questions->filter(fn (F01Question $q) => array_key_exists($q->id, $answers))->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Simpan isian satu aspek sebagai draft.
      */
     public function saveDraft(Request $request): RedirectResponse
     {
@@ -74,9 +98,16 @@ class F01Controller extends Controller
             return back()->with('error', $this->periodClosedMessage());
         }
 
-        $this->persistAnswers($request, $evaluation);
+        $aspectId = $this->persistAnswers($request, $evaluation);
+        $aspect = $aspectId ? Aspect::find($aspectId) : null;
 
-        return back()->with('success', 'Draft isian F-01 dan tautan Google Drive bukti dukung berhasil disimpan.');
+        $message = $aspect
+            ? 'Draft aspek '.$aspect->name.' beserta tautan bukti dukungnya berhasil disimpan.'
+            : 'Draft isian F-01 berhasil disimpan.';
+
+        return $aspect
+            ? redirect()->route('f01.aspect', $aspect)->with('success', $message)
+            : back()->with('success', $message);
     }
 
     /**
@@ -100,11 +131,14 @@ class F01Controller extends Controller
 
         $this->persistAnswers($request, $evaluation);
 
-        // Lapisan pengaman server: seluruh butir wajib dijawab dan memiliki tautan bukti dukung.
-        $incomplete = $this->incompleteItems($request);
+        // Lapisan pengaman server: seluruh butir wajib dijawab dan setiap aspek
+        // berbobot wajib memiliki tautan bukti dukung.
+        $incomplete = $this->incompleteItems($evaluation);
 
         if ($incomplete['total'] > 0) {
-            return back()->with('error', $this->incompleteMessage($incomplete));
+            return redirect()
+                ->route('f01.index')
+                ->with('error', $this->incompleteMessage($incomplete));
         }
 
         $evaluation->status = 'submitted';
@@ -117,16 +151,149 @@ class F01Controller extends Controller
     }
 
     /**
+     * @return Collection<int, Aspect>
+     */
+    private function aspects(): Collection
+    {
+        return Aspect::with(['indicators.f01Questions'])->orderBy('order')->get();
+    }
+
+    /**
+     * Jawaban tersimpan, di-key berdasarkan id butir pertanyaan.
+     *
+     * @param  array<int, int>|null  $questionIds
+     * @return array<int, mixed>
+     */
+    private function answers(?Evaluation $evaluation, ?array $questionIds = null): array
+    {
+        if (! $evaluation) {
+            return [];
+        }
+
+        $query = F01Answer::where('evaluation_id', $evaluation->id);
+
+        if ($questionIds !== null) {
+            $query->whereIn('f01_question_id', $questionIds);
+        }
+
+        $answers = [];
+
+        foreach ($query->get() as $answer) {
+            if ($this->hasValue($answer->answer_value)) {
+                $answers[$answer->f01_question_id] = $answer->answer_value;
+            }
+        }
+
+        return $answers;
+    }
+
+    /**
+     * Tautan Drive per aspek, di-key berdasarkan id aspek.
+     *
+     * @return Collection<int, string>
+     */
+    private function links(?Evaluation $evaluation): Collection
+    {
+        if (! $evaluation) {
+            return collect();
+        }
+
+        return F01AspectLink::where('evaluation_id', $evaluation->id)
+            ->whereNotNull('drive_link')
+            ->pluck('drive_link', 'aspect_id');
+    }
+
+    /**
+     * Kartu ringkas per aspek untuk halaman daftar.
+     *
+     * @param  Collection<int, Aspect>  $aspects
+     * @param  array<int, mixed>  $answers
+     * @param  Collection<int, string>  $links
+     * @return array<int, array{aspect: Aspect, indicators: int, total: int, answered: int, percent: int, link: string|null, requires_link: bool}>
+     */
+    private function aspectCards(Collection $aspects, array $answers, Collection $links): array
+    {
+        return $aspects->map(function (Aspect $aspect) use ($answers, $links) {
+            $questions = $aspect->indicators->flatMap->f01Questions;
+            $total = $questions->count();
+            $answered = $questions->filter(fn (F01Question $q) => array_key_exists($q->id, $answers))->count();
+
+            return [
+                'aspect' => $aspect,
+                'indicators' => $aspect->indicators->count(),
+                'total' => $total,
+                'answered' => $answered,
+                'percent' => $total > 0 ? (int) round(($answered / $total) * 100) : 0,
+                'link' => $links->get($aspect->id),
+                'requires_link' => $aspect->requiresDriveLink(),
+            ];
+        })->all();
+    }
+
+    /**
+     * Statistik kelengkapan F-01 keseluruhan.
+     *
+     * @param  Collection<int, Aspect>  $aspects
+     * @param  array<int, mixed>  $answers
+     * @param  Collection<int, string>  $links
+     * @return array{total: int, answered: int, percentage: int, aspects_with_link: int, aspects_requiring_link: int}
+     */
+    private function completionStats(Collection $aspects, array $answers, Collection $links): array
+    {
+        $total = 0;
+        $answered = 0;
+
+        foreach ($aspects as $aspect) {
+            foreach ($aspect->indicators->flatMap->f01Questions as $question) {
+                $total++;
+
+                if (array_key_exists($question->id, $answers)) {
+                    $answered++;
+                }
+            }
+        }
+
+        $requiring = $aspects->filter(fn (Aspect $a) => $a->requiresDriveLink());
+
+        return [
+            'total' => $total,
+            'answered' => $answered,
+            'percentage' => $total > 0 ? (int) min(100, round(($answered / $total) * 100)) : 0,
+            'aspects_with_link' => $requiring->filter(fn (Aspect $a) => filled($links->get($a->id)))->count(),
+            'aspects_requiring_link' => $requiring->count(),
+        ];
+    }
+
+    /**
+     * Aspek sebelum dan sesudah aspek ini berdasarkan urutan tampil.
+     *
+     * @return array{0: Aspect|null, 1: Aspect|null}
+     */
+    private function siblingAspects(Aspect $aspect): array
+    {
+        $ordered = Aspect::orderBy('order')->get();
+
+        $index = $ordered->search(fn (Aspect $item) => $item->id === $aspect->id);
+
+        if ($index === false) {
+            return [null, null];
+        }
+
+        return [
+            $index > 0 ? $ordered->get($index - 1) : null,
+            $ordered->get($index + 1),
+        ];
+    }
+
+    /**
      * Tentukan sesi evaluasi milik unit layanan pengguna yang sedang login.
      * F-01 hanya diisi oleh akun Unit Layanan (OPD).
-     *
-     * Sesi hanya dibuat/dikembalikan bila ada periode penilaian yang sedang dibuka.
      */
     private function resolveEvaluation(): ?Evaluation
     {
         $user = auth()->user();
 
-        if (! $user->isOpd() || ! $user->opd_id) {
+        if (! $user || ! $user->isOpd() || ! $user->opd_id) {
             return null;
         }
 
@@ -174,82 +341,121 @@ class F01Controller extends Controller
     }
 
     /**
-     * Simpan jawaban, tautan Google Drive, dan catatan unit layanan.
+     * Simpan jawaban butir dan tautan Drive per aspek.
+     *
+     * @return int|null id aspek yang dikirim (untuk redirect kembali ke halaman aspek)
      */
-    private function persistAnswers(Request $request, Evaluation $evaluation): void
+    private function persistAnswers(Request $request, Evaluation $evaluation): ?int
     {
         $answers = (array) $request->input('answers', []);
-        $driveLinks = (array) $request->input('drive_links', []);
         $opdNotes = (array) $request->input('opd_notes', []);
 
-        $questionIds = array_unique(array_merge(
-            array_keys($answers),
-            array_keys($driveLinks),
-            array_keys($opdNotes),
-        ));
+        // Batasi penyimpanan pada aspek yang sedang dibuka. Tanpa ini, sebuah
+        // permintaan dapat menimpa jawaban dan tautan aspek lain sekaligus,
+        // padahal alur F-01 menyimpan satu aspek per halaman.
+        $aspect = Aspect::find((int) $request->input('aspect_id'));
 
-        foreach ($questionIds as $questionId) {
+        if (! $aspect) {
+            return null;
+        }
+
+        $questionIds = F01Question::whereIn('indicator_id', $aspect->indicators()->pluck('id'))
+            ->pluck('id')
+            ->all();
+
+        $submitted = array_unique(array_map('intval', array_merge(array_keys($answers), array_keys($opdNotes))));
+
+        foreach (array_intersect($submitted, $questionIds) as $questionId) {
             F01Answer::updateOrCreate(
                 [
                     'evaluation_id' => $evaluation->id,
-                    'f01_question_id' => (int) $questionId,
+                    'f01_question_id' => $questionId,
                 ],
                 [
                     'answer_value' => $this->normalizeAnswer($answers[$questionId] ?? null),
-                    'drive_link' => $this->normalizeText($driveLinks[$questionId] ?? null),
                     'opd_note' => $this->normalizeText($opdNotes[$questionId] ?? null),
                 ],
             );
         }
-    }
 
-    /**
-     * Kumpulkan butir F-01 yang belum lengkap pada isian yang dikirim.
-     *
-     * Sebuah butir dianggap belum lengkap bila jawabannya kosong, atau bila
-     * butir tersebut mewajibkan tautan bukti dukung namun tautannya kosong.
-     *
-     * @return array{total: int, unanswered: int, missing_drive: int, items: array<int, array{code: string, indicator: string, reason: string}>}
-     */
-    private function incompleteItems(Request $request): array
-    {
-        $answers = (array) $request->input('answers', []);
-        $driveLinks = (array) $request->input('drive_links', []);
+        $aspectLinks = (array) $request->input('aspect_drive_links', []);
 
-        $questions = F01Question::with('indicator')->orderBy('order')->get();
+        foreach ($aspectLinks as $aspectId => $link) {
+            $aspectId = (int) $aspectId;
 
-        $items = [];
-        $unanswered = 0;
-        $missingDrive = 0;
-
-        foreach ($questions as $question) {
-            $hasAnswer = $this->hasValue($answers[$question->id] ?? null);
-            $hasLink = $this->hasValue($driveLinks[$question->id] ?? null);
-
-            if ($hasAnswer && (! $question->requires_drive_link || $hasLink)) {
+            if ($aspectId !== $aspect->id) {
                 continue;
             }
 
-            if (! $hasAnswer) {
-                $unanswered++;
+            $normalized = $this->normalizeLink($link);
+
+            if ($normalized === null) {
+                F01AspectLink::where('evaluation_id', $evaluation->id)
+                    ->where('aspect_id', $aspectId)
+                    ->delete();
+
+                continue;
             }
 
-            if (! $hasLink) {
-                $missingDrive++;
-            }
-
-            $items[] = [
-                'code' => $question->question_code,
-                'indicator' => $question->indicator?->number ?? $question->indicator?->name ?? '—',
-                'reason' => ! $hasAnswer ? 'Belum dijawab' : 'Belum ada tautan bukti dukung',
-            ];
+            F01AspectLink::updateOrCreate(
+                [
+                    'evaluation_id' => $evaluation->id,
+                    'aspect_id' => $aspectId,
+                ],
+                ['drive_link' => $normalized],
+            );
         }
 
+        return $aspect->id;
+    }
+
+    /**
+     * Normalisasi tautan: kosong menjadi null, tanpa skema diberi https://.
+     */
+    private function normalizeLink(mixed $value): ?string
+    {
+        $link = $this->normalizeText($value);
+
+        if ($link === null) {
+            return null;
+        }
+
+        if (! preg_match('#^https?://#i', $link)) {
+            $link = 'https://'.$link;
+        }
+
+        return $link;
+    }
+
+    /**
+     * Kumpulkan kekurangan isian F-01 dari data tersimpan.
+     *
+     * @return array{total: int, unanswered: int, missing_aspects: array<int, string>}
+     */
+    private function incompleteItems(Evaluation $evaluation): array
+    {
+        $answers = $this->answers($evaluation);
+        $links = $this->links($evaluation);
+
+        $unanswered = 0;
+
+        foreach (F01Question::orderBy('order')->get() as $question) {
+            if (! array_key_exists($question->id, $answers)) {
+                $unanswered++;
+            }
+        }
+
+        $missingAspects = Aspect::where('weight', '>', 0)
+            ->orderBy('order')
+            ->get()
+            ->filter(fn (Aspect $aspect) => ! filled($links->get($aspect->id)))
+            ->pluck('name')
+            ->all();
+
         return [
-            'total' => count($items),
+            'total' => $unanswered + count($missingAspects),
             'unanswered' => $unanswered,
-            'missing_drive' => $missingDrive,
-            'items' => $items,
+            'missing_aspects' => $missingAspects,
         ];
     }
 
@@ -266,9 +472,9 @@ class F01Controller extends Controller
     }
 
     /**
-     * Susun pesan ringkas untuk butir F-01 yang belum lengkap.
+     * Susun pesan ringkas untuk isian F-01 yang belum lengkap.
      *
-     * @param  array{total: int, unanswered: int, missing_drive: int}  $incomplete
+     * @param  array{total: int, unanswered: int, missing_aspects: array<int, string>}  $incomplete
      */
     private function incompleteMessage(array $incomplete): string
     {
@@ -278,49 +484,10 @@ class F01Controller extends Controller
             $parts[] = $incomplete['unanswered'].' butir belum dijawab';
         }
 
-        if ($incomplete['missing_drive'] > 0) {
-            $parts[] = $incomplete['missing_drive'].' butir belum memiliki tautan Google Drive';
-        }
-
-        if ($parts === []) {
-            $parts[] = $incomplete['total'].' butir belum lengkap';
+        if ($incomplete['missing_aspects'] !== []) {
+            $parts[] = 'tautan Google Drive belum diisi pada aspek: '.implode(', ', $incomplete['missing_aspects']);
         }
 
         return 'Formulir belum dapat dikirim. Masih ada '.implode(' dan ', $parts).'.';
-    }
-
-    /**
-     * Statistik kelengkapan pengisian instrumen F-01.
-     *
-     * @param  array<int, mixed>  $answers
-     * @param  array<int, string|null>  $driveLinks
-     * @return array{total: int, answered: int, drive_count: int, percentage: int}
-     */
-    private function completionStats(array $answers, array $driveLinks): array
-    {
-        $total = F01Question::count();
-
-        $answered = 0;
-        foreach ($answers as $value) {
-            if (! empty($value)) {
-                $answered++;
-            }
-        }
-
-        $driveCount = 0;
-        foreach ($driveLinks as $link) {
-            if (! empty($link)) {
-                $driveCount++;
-            }
-        }
-
-        $percentage = $total > 0 ? (int) min(100, round(($answered / $total) * 100)) : 0;
-
-        return [
-            'total' => $total,
-            'answered' => $answered,
-            'drive_count' => $driveCount,
-            'percentage' => $percentage,
-        ];
     }
 }

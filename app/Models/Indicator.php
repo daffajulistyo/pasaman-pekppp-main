@@ -32,8 +32,45 @@ class Indicator extends Model
         return $this->hasMany(F01Question::class)->orderBy('order');
     }
 
-    public function f02Scores()
+    /**
+     * Penilaian F-02 untuk indikator ini (satu baris per sesi evaluasi).
+     */
+    public function f02Score()
     {
-        return $this->hasMany(F02Score::class);
+        return $this->hasOne(F02IndicatorScore::class);
+    }
+
+    /**
+     * Keterangan bukti dukung yang diminta untuk indikator ini, diambil dari
+     * `evidence_hint` seluruh butir pertanyaan F-01 lalu digabung tanpa duplikat.
+     */
+    /**
+     * Daftar keterangan bukti dukung yang diminta untuk indikator ini.
+     *
+     * Diambil dari `evidence_hint` seluruh butir pertanyaan F-01, dibersihkan
+     * dari duplikat dan titik di ujung kalimat, sehingga dapat ditampilkan
+     * sebagai daftar bernomor pada formulir.
+     *
+     * @return array<int, string>
+     */
+    public function evidenceHints(): array
+    {
+        return $this->f01Questions
+            ->pluck('evidence_hint')
+            ->filter(fn ($hint) => filled($hint))
+            ->map(fn ($hint) => rtrim(trim((string) $hint), '.'))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Keterangan bukti dukung dalam satu baris (dipisah titik koma).
+     */
+    public function evidenceHint(): ?string
+    {
+        $hints = $this->evidenceHints();
+
+        return $hints === [] ? null : implode('; ', $hints);
     }
 }
