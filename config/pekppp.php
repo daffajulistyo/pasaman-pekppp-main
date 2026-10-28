@@ -13,8 +13,10 @@ return [
         'name' => 'PEKPPP Pasaman',
         'workspace' => 'Kabupaten Pasaman',
         'description' => 'Penilaian Kinerja Pelayanan Publik',
-        'footer' => 'Bagian Organisasi Setda Kabupaten Pasaman',
+        'footer' => 'Dinas Komunikasi dan Informatika Kabupaten Pasaman',
         'logo' => 'logo-pasaman.png',
+        'icon' => 'logo-pasaman-32.png',
+        'touch_icon' => 'logo-pasaman-180.png',
     ],
 
     /*

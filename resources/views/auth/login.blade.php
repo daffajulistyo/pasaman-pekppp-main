@@ -51,7 +51,7 @@
                 </form>
             </div>
             <p class="mt-4 text-center text-xs text-muted-foreground">
-                Bagian Organisasi Setda Kabupaten Pasaman &copy; {{ date('Y') }}
+                {{ config('pekppp.brand.footer') }} &copy; {{ date('Y') }}
             </p>
         </div>
     </div>

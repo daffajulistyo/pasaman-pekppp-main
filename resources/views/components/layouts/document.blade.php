@@ -71,6 +71,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ $title }}</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ asset(config('pekppp.brand.icon')) }}">
     <style>{!! $docCss !!}</style>
 </head>
 <body @class(['doc-embedded' => (bool) $embed])>
