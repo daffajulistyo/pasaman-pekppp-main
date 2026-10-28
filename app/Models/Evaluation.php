@@ -608,6 +608,17 @@ class Evaluation extends Model
     }
 
     /**
+     * Apakah unit layanan boleh melihat rekapitulasi hasil penilaiannya.
+     *
+     * Terbuka setelah penilai menyelesaikan penilaian (Terverifikasi atau
+     * Selesai & Final). Sebelum itu nilai masih dapat berubah.
+     */
+    public function isResultPublishedForOpd(): bool
+    {
+        return in_array($this->status, ['verified', 'completed'], true);
+    }
+
+    /**
      * Warna badge Bootstrap untuk status evaluasi.
      */
     public static function statusTone(?string $status): string

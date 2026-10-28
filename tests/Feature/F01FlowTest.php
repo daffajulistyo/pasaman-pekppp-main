@@ -67,6 +67,41 @@ class F01FlowTest extends TestCase
         $response->assertSee('Bukti dukung yang diminta', false);
     }
 
+    public function test_kirim_ke_penilai_hanya_ada_di_daftar_aspek(): void
+    {
+        $user = $this->opdUser();
+        $aspect = Aspect::where('code', 'kebijakan_pelayanan')->firstOrFail();
+
+        // Daftar aspek: satu tombol kirim untuk seluruh formulir.
+        $index = $this->actingAs($user)->get(route('f01.index'))->assertOk()->getContent();
+
+        $this->assertSame(1, substr_count($index, 'Kirim ke Penilai'));
+        $this->assertStringContainsString('action="'.route('f01.submit').'"', $index);
+
+        // Halaman aspek: tidak ada tombol kirim, hanya Simpan Draft + tautan
+        // navigasi menuju formulir kirim di daftar aspek.
+        $page = $this->actingAs($user)->get(route('f01.aspect', $aspect))->assertOk()->getContent();
+
+        $start = strpos($page, '<main id="page-root"');
+        $end = strrpos($page, '</main>');
+        $main = substr($page, $start, $end - $start);
+
+        $this->assertStringNotContainsString('Kirim ke Penilai', $main);
+        $this->assertSame(1, substr_count($main, 'Simpan Draft'));
+        $this->assertStringContainsString(route('f01.index').'#f01SubmitForm', $main);
+        $this->assertStringNotContainsString('data-f01-submit"', $main);
+    }
+
+    public function test_kartu_aspek_ditumpuk_penuh_bukan_dua_kolom(): void
+    {
+        $user = $this->opdUser();
+
+        $html = $this->actingAs($user)->get(route('f01.index'))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('lg:grid-cols-2', $html);
+        $this->assertStringContainsString('class="space-y-3"', $html);
+    }
+
     public function test_bukti_dukung_indikator_tampil_sebagai_daftar_bernomor_di_bawah_butir(): void
     {
         $user = $this->opdUser();
@@ -125,14 +160,16 @@ class F01FlowTest extends TestCase
      * Script halaman wajib ikut terkirim: `@push('scripts')` yang diletakkan di
      * luar komponen layout akan dibuang diam-diam oleh Laravel.
      */
-    public function test_script_halaman_aspek_ikut_terkirim(): void
+    public function test_script_validasi_kirim_ikut_terkirim_di_daftar_aspek(): void
     {
         $user = $this->opdUser();
-        $aspect = Aspect::where('code', 'kebijakan_pelayanan')->firstOrFail();
 
-        $html = $this->actingAs($user)->get(route('f01.aspect', $aspect))->assertOk()->getContent();
+        $html = $this->actingAs($user)->get(route('f01.index'))->assertOk()->getContent();
 
-        $this->assertStringContainsString('unansweredItems', $html, 'Script validasi tombol kirim F-01 tidak terkirim ke halaman.');
+        // Pengaman sistemik: @push('scripts') harus berada di dalam layout,
+        // jika tidak, Laravel membuang script ini tanpa peringatan.
+        $this->assertStringContainsString('f01SubmitForm', $html);
+        $this->assertStringContainsString('Isian belum lengkap', $html);
     }
 
     public function test_skrip_yang_sama_tidak_bocor_antar_halaman(): void

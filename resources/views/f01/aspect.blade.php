@@ -18,7 +18,7 @@
     </div>
 
     <x-ui.page-header title="Aspek {{ $aspect->order }}: {{ $aspect->name }}"
-        description="Jawab seluruh butir pertanyaan pada aspek ini. Tautan Google Drive bukti dukung diisi satu kali untuk seluruh aspek, di bagian bawah halaman." />
+        description="Jawab seluruh butir pertanyaan pada aspek ini. Tautan Google Drive bukti dukung diisi satu kali untuk seluruh aspek, di bagian bawah halaman. Pengiriman ke penilai dilakukan sekali dari daftar aspek." />
 
     @include('f01._summary')
 
@@ -197,94 +197,12 @@
                         <x-ui.button type="submit" variant="primary">
                             <x-ui.icon name="check-circle" class="h-4 w-4" /> Simpan Draft
                         </x-ui.button>
-                        <x-ui.button type="submit" variant="success" data-f01-submit>
-                            <x-ui.icon name="logout" class="h-4 w-4" /> Kirim ke Penilai
-                        </x-ui.button>
+                        <a href="{{ route('f01.index') }}#f01SubmitForm" class="btn btn-success">
+                            <x-ui.icon name="logout" class="h-4 w-4" /> Selesai, kembali untuk kirim
+                        </a>
                     </div>
                 </div>
             @endunless
         </fieldset>
     </form>
-@push('scripts')
-    @unless ($locked)
-        <script>
-            (function () {
-                var form = document.getElementById('f01Form');
-                if (!form) return;
-
-                var submitUrl = @json(route('f01.submit'));
-
-                function isFilled(el) {
-                    if (!el) return false;
-                    if (el.type === 'checkbox' || el.type === 'radio') return el.checked;
-                    return String(el.value || '').trim() !== '';
-                }
-
-                /* Butir pada aspek ini yang belum dijawab. */
-                function unansweredItems() {
-                    var items = [];
-
-                    form.querySelectorAll('[data-question-item]').forEach(function (item) {
-                        var answers = item.querySelectorAll('[data-f01-answer]');
-                        var filled = false;
-
-                        if (answers.length) {
-                            filled = Array.prototype.some.call(answers, isFilled);
-                        } else {
-                            filled = Array.prototype.some.call(item.querySelectorAll('input, textarea'), isFilled);
-                        }
-
-                        if (!filled) items.push(item.getAttribute('data-question-code') || '?');
-                    });
-
-                    return items;
-                }
-
-                function notify(title, description) {
-                    if (window.App && App.toast) {
-                        App.toast({ title: title, description: description, tone: 'warning' });
-                    } else {
-                        window.alert(title + ': ' + description);
-                    }
-                }
-
-                document.querySelectorAll('[data-f01-submit]').forEach(function (button) {
-                    button.addEventListener('click', function (event) {
-                        var missing = unansweredItems();
-                        var requiresLink = @json($aspect->requiresDriveLink());
-                        var link = form.querySelector('[data-f01-aspect-drive]');
-                        var linkMissing = requiresLink && !isFilled(link);
-
-                        if (missing.length || linkMissing) {
-                            event.preventDefault();
-
-                            var parts = [];
-                            if (missing.length) parts.push('butir belum dijawab: ' + missing.join(', '));
-                            if (linkMissing) parts.push('tautan Google Drive aspek ini belum diisi');
-
-                            notify('Aspek ini belum lengkap', parts.join(' · '));
-                            return;
-                        }
-
-                        event.preventDefault();
-
-                        var submit = function () {
-                            window.App.confirm({
-                                title: 'Kirim Formulir F-01?',
-                                description: 'Isian aspek ini akan disimpan lalu seluruh formulir dikirim ke Tim Penilai. Setelah dikirim, isian tidak dapat diubah.',
-                                confirm: 'Ya, simpan & kirim'
-                            }).then(function (ok) {
-                                if (!ok) return;
-                                form.action = submitUrl;
-                                form.submit();
-                            });
-                        };
-
-                        if (window.App && window.App.confirm) { submit(); } else { form.submit(); }
-                    });
-                });
-            })();
-        </script>
-    @endunless
-@endpush
 </x-layouts.admin>

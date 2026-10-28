@@ -12,6 +12,7 @@
     $instrumen = [];
     if ($user->isOpd()) {
         $instrumen[] = ['label' => 'F-01 Penilaian Mandiri', 'route' => 'f01.index', 'icon' => 'edit'];
+        $instrumen[] = ['label' => 'Hasil Penilaian', 'route' => 'hasil.show', 'icon' => 'table'];
     }
     if ($user->isAdmin()) {
         $instrumen[] = ['label' => 'F-02 Penilaian', 'route' => 'f02.index', 'icon' => 'check-circle'];

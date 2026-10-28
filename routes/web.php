@@ -9,6 +9,7 @@ use App\Http\Controllers\F02Controller;
 use App\Http\Controllers\F03Controller;
 use App\Http\Controllers\LeaderboardController;
 use App\Http\Controllers\OpdController;
+use App\Http\Controllers\OpdResultController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\ResetPasswordController;
 use App\Http\Controllers\UserController;
@@ -54,6 +55,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/f01/aspek/{aspect:code}', [F01Controller::class, 'aspect'])->name('f01.aspect');
         Route::post('/f01/simpan-draft', [F01Controller::class, 'saveDraft'])->name('f01.save_draft');
         Route::post('/f01/kirim', [F01Controller::class, 'submit'])->name('f01.submit');
+
+        // Rekapitulasi hasil penilaian milik unit layanan sendiri.
+        Route::get('/hasil', [OpdResultController::class, 'show'])->name('hasil.show');
     });
 
     // Instrumen PEKPPP - F-02 & F-03 (Admin / Penilai)

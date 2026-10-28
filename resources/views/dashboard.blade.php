@@ -117,6 +117,9 @@
             <div class="mt-4 flex flex-wrap gap-2 border-t pt-4">
                 @if ($user->isOpd())
                     <a href="{{ route('f01.index') }}" class="btn btn-success btn-sm"><x-ui.icon name="edit" class="h-4 w-4" /> Buka Formulir F-01</a>
+                    @if ($myEvaluation->isResultPublishedForOpd())
+                        <a href="{{ route('hasil.show') }}" class="btn btn-primary btn-sm"><x-ui.icon name="table" class="h-4 w-4" /> Lihat Hasil Penilaian</a>
+                    @endif
                 @endif
                 @if ($user->isAdmin())
                     <a href="{{ route('f02.index', ['evaluasi' => $myEvaluation->id]) }}" class="btn btn-primary btn-sm"><x-ui.icon name="check-circle" class="h-4 w-4" /> Nilai F-02</a>

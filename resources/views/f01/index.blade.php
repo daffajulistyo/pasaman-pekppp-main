@@ -38,21 +38,24 @@
             </x-ui.alert>
         @endif
 
-        <div class="grid gap-4 lg:grid-cols-2">
+        <div class="space-y-3">
             @foreach ($aspectCards as $card)
                 @php
                     $asp = $card['aspect'];
                     $linkFilled = filled($card['link']);
                     $complete = $card['total'] > 0 && $card['answered'] === $card['total'];
                     $linkOk = ! $card['requires_link'] || $linkFilled;
+                    $ready = $complete && $linkOk;
                 @endphp
-                <section id="aspek-{{ $asp->code }}" class="flex flex-col overflow-hidden rounded-xl border">
-                    <header class="flex flex-wrap items-start justify-between gap-3 border-b bg-muted/40 px-5 py-4">
-                        <div class="min-w-0">
-                            <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aspek {{ $asp->order }}</p>
-                            <h3 class="text-base font-semibold">{{ $asp->name }}</h3>
-                        </div>
-                        <div class="flex flex-wrap items-center gap-2">
+                <section id="aspek-{{ $asp->code }}"
+                    class="card flex flex-col gap-4 border-l-4 p-5 lg:flex-row lg:items-center {{ $ready ? 'border-l-success' : 'border-l-border' }}">
+                    {{-- Kiri: identitas aspek --}}
+                    <div class="min-w-0 lg:flex-1">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Aspek {{ $asp->order }}
+                        </p>
+                        <h3 class="text-base font-semibold leading-snug">{{ $asp->name }}</h3>
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
                             @if ($asp->weight > 0)
                                 <x-ui.badge variant="success">Bobot F-02: {{ $weight($asp->weight) }}%</x-ui.badge>
                             @else
@@ -60,9 +63,10 @@
                             @endif
                             <x-ui.badge variant="outline">{{ $card['indicators'] }} Indikator</x-ui.badge>
                         </div>
-                    </header>
+                    </div>
 
-                    <div class="flex-1 space-y-3 px-5 py-4">
+                    {{-- Tengah: progres pengisian --}}
+                    <div class="lg:w-80 lg:shrink-0">
                         <div class="flex flex-wrap items-center gap-2">
                             <x-ui.badge :variant="$complete ? 'success' : 'neutral'">
                                 {{ $card['answered'] }}/{{ $card['total'] }} butir
@@ -72,33 +76,39 @@
                                 Link Drive: {{ $linkFilled ? 'Ada' : 'Belum' }}{{ $card['requires_link'] ? '' : ' (opsional)' }}
                             </x-ui.badge>
                         </div>
-
-                        <div>
+                        <div class="mt-2">
                             <div class="progress h-2"><div class="progress-bar {{ $complete ? 'bg-success' : 'bg-primary' }}" style="width: {{ $card['percent'] }}%"></div></div>
                             <p class="mt-1 text-xs text-muted-foreground">{{ $card['percent'] }}% butir terjawab</p>
                         </div>
                     </div>
 
-                    <footer class="flex items-center justify-end gap-2 border-t bg-muted/20 px-5 py-3">
-                        @if ($complete && $linkOk)
-                            <x-ui.badge variant="success">Lengkap</x-ui.badge>
+                    {{-- Kanan: aksi --}}
+                    <div class="flex shrink-0 items-center justify-between gap-2 lg:justify-end">
+                        @if ($ready)
+                            <x-ui.badge variant="success" icon="check-circle">Lengkap</x-ui.badge>
                         @endif
                         <a href="{{ route('f01.aspect', $asp) }}" class="btn btn-primary btn-sm">
                             <x-ui.icon name="pointer" class="h-4 w-4" />
                             {{ $locked ? 'Lihat Detail' : ($complete ? 'Lihat / Ubah' : 'Isi / Lanjutkan') }}
                         </a>
-                    </footer>
+                    </div>
                 </section>
             @endforeach
         </div>
 
         @unless ($locked)
-            <form id="f01SubmitForm" method="POST" action="{{ route('f01.submit') }}">
+            <form id="f01SubmitForm" method="POST" action="{{ route('f01.submit') }}" class="scroll-mt-24">
                 @csrf
                 <div class="card flex flex-wrap items-center justify-between gap-3 p-6">
-                    <p class="text-sm text-muted-foreground">
-                        Setelah seluruh aspek lengkap, kirim formulir ke Tim Penilai. Isian yang sudah dikirim tidak dapat diubah.
-                    </p>
+                    <div class="min-w-0">
+                        <p class="flex items-center gap-2 text-sm font-semibold">
+                            <x-ui.icon name="logout" class="h-4 w-4 text-success" /> Kirim Formulir ke Penilai
+                        </p>
+                        <p class="mt-1 text-sm text-muted-foreground">
+                            Kirim dilakukan sekali untuk <strong>seluruh aspek</strong> setelah semuanya lengkap.
+                            Isian yang sudah dikirim tidak dapat diubah.
+                        </p>
+                    </div>
                     <x-ui.button type="submit" variant="success" data-f01-submit-all>
                         <x-ui.icon name="logout" class="h-4 w-4" /> Kirim ke Penilai
                     </x-ui.button>
