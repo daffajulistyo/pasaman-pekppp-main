@@ -22,14 +22,16 @@
         $navGroups[] = ['label' => 'Instrumen PEKPPP', 'items' => $instrumen];
     }
 
-    $navGroups[] = [
-        'label' => 'Laporan & Hasil',
-        'items' => array_values(array_filter([
-            ['label' => 'Peringkat IPP', 'route' => 'peringkat.index', 'icon' => 'star'],
-            $user->isAdmin() ? ['label' => 'Laporan & Cetak', 'route' => 'laporan.index', 'icon' => 'file-text'] : null,
-            $user->isAdmin() ? ['label' => 'Arsip Tahun', 'route' => 'arsip.index', 'icon' => 'clock'] : null,
-        ])),
-    ];
+    if ($user->isAdmin()) {
+        $navGroups[] = [
+            'label' => 'Laporan & Hasil',
+            'items' => [
+                ['label' => 'Peringkat IPP', 'route' => 'peringkat.index', 'icon' => 'star'],
+                ['label' => 'Laporan & Cetak', 'route' => 'laporan.index', 'icon' => 'file-text'],
+                ['label' => 'Arsip Tahun', 'route' => 'arsip.index', 'icon' => 'clock'],
+            ],
+        ];
+    }
 
     $master = [];
     if ($user->isAdmin()) {

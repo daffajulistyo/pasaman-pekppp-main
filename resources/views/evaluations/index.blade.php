@@ -49,11 +49,18 @@
                 <h2 class="card-title">Daftar Sesi Evaluasi</h2>
                 <p class="card-desc mt-1.5">{{ $evaluations->total() }} sesi terdaftar.</p>
             </div>
+            <form id="finalizeForm" method="POST" action="{{ route('evaluations.finalize') }}" data-finalize-form>
+                @csrf
+                <button type="button" class="btn btn-success" data-modal-open="#finalizeSelectedModal" disabled data-finalize-submit>
+                    <x-ui.icon name="check-circle" class="h-4 w-4" /> Finalisasi Terpilih (<span data-finalize-count>0</span>)
+                </button>
+            </form>
         </div>
         <div class="overflow-x-auto border-t">
             <table class="table min-w-[980px]">
                 <thead>
                     <tr>
+                        <th class="w-10"></th>
                         <th>Unit Layanan</th>
                         <th class="hidden xl:table-cell">Kategori</th>
                         <th class="text-center">Tahun</th>
@@ -68,6 +75,12 @@
                 <tbody>
                     @forelse ($evaluations as $evaluation)
                         <tr>
+                            <td class="text-center">
+                                @if ($evaluation->status === 'in_review' && !$evaluation->isPeriodLocked())
+                                    <input type="checkbox" name="ids[]" value="{{ $evaluation->id }}" form="finalizeForm"
+                                        data-finalize-checkbox aria-label="Pilih {{ $evaluation->opd?->name }}">
+                                @endif
+                            </td>
                             <td class="font-medium">{{ $evaluation->opd?->name ?? '—' }}</td>
                             <td class="hidden xl:table-cell">
                                 <x-ui.badge variant="outline" class="badge-kategori">{{ $evaluation->opd?->category ?? '—' }}</x-ui.badge>
@@ -103,6 +116,14 @@
                                         <div class="menu-sep"></div>
                                         <a href="{{ route('laporan.berita_acara', $evaluation) }}" class="menu-item"><x-ui.icon name="file-text" />Berita Acara</a>
                                         <a href="{{ route('laporan.rekapitulasi', $evaluation) }}" target="_blank" rel="noopener" class="menu-item"><x-ui.icon name="table" />Rekapitulasi</a>
+                                        @if ($evaluation->status === 'in_review' && !$evaluation->isPeriodLocked())
+                                            <div class="menu-sep"></div>
+                                            <form method="POST" action="{{ route('evaluations.finalize') }}">
+                                                @csrf
+                                                <input type="hidden" name="ids[]" value="{{ $evaluation->id }}">
+                                                <button type="submit" class="menu-item w-full"><x-ui.icon name="check-circle" />Finalisasi</button>
+                                            </form>
+                                        @endif
                                         <div class="menu-sep"></div>
                                         <form method="POST" action="{{ route('evaluations.recalculate', $evaluation) }}">
                                             @csrf
@@ -117,7 +138,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="9">
+                            <td colspan="10">
                                 <x-ui.empty icon="calendar" title="Tidak ada data evaluasi"
                                     description="Belum ada sesi evaluasi yang cocok dengan filter." />
                             </td>
@@ -131,6 +152,14 @@
             <x-ui.pagination :paginator="$evaluations" />
         @endif
     </div>
+
+    <x-ui.modal id="finalizeSelectedModal" title="Finalisasi sesi terpilih?" icon="check-circle" tone="success" size="sm"
+        description="Status sesi terpilih akan diubah menjadi Selesai & Final dan hasilnya terbuka untuk unit layanan.">
+        <x-slot:footer>
+            <x-ui.button variant="outline" data-modal-close>Batal</x-ui.button>
+            <button type="submit" form="finalizeForm" class="btn btn-success">Ya, finalkan</button>
+        </x-slot:footer>
+    </x-ui.modal>
 
     @if (auth()->user()->isAdmin())
         <x-ui.modal id="createEvaluationModal" title="Tambah Sesi Evaluasi" icon="plus" tone="success">
@@ -172,4 +201,19 @@
                 label="Ya, hapus" />
         @endforeach
     @endif
+
+    <script>
+        (() => {
+            const boxes = [...document.querySelectorAll('[data-finalize-checkbox]')];
+            const button = document.querySelector('[data-finalize-submit]');
+            const count = document.querySelector('[data-finalize-count]');
+            const sync = () => {
+                const n = boxes.filter(b => b.checked).length;
+                if (count) count.textContent = n;
+                if (button) button.disabled = n === 0;
+            };
+            boxes.forEach(b => b.addEventListener('change', sync));
+            sync();
+        })();
+    </script>
 </x-layouts.admin>

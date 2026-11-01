@@ -124,8 +124,8 @@
                 @if ($user->isAdmin())
                     <a href="{{ route('f02.index', ['evaluasi' => $myEvaluation->id]) }}" class="btn btn-primary btn-sm"><x-ui.icon name="check-circle" class="h-4 w-4" /> Nilai F-02</a>
                     <a href="{{ route('f03.index', ['evaluasi' => $myEvaluation->id]) }}" class="btn btn-warning btn-sm"><x-ui.icon name="message" class="h-4 w-4" /> Input F-03</a>
+                    <a href="{{ route('peringkat.index', ['tahun' => $year]) }}" class="btn btn-outline btn-sm"><x-ui.icon name="star" class="h-4 w-4" /> Lihat Papan Peringkat</a>
                 @endif
-                <a href="{{ route('peringkat.index', ['tahun' => $year]) }}" class="btn btn-outline btn-sm"><x-ui.icon name="star" class="h-4 w-4" /> Lihat Papan Peringkat</a>
             </div>
         </div>
     @endif
@@ -163,7 +163,8 @@
         </x-ui.card>
     </section>
 
-    {{-- Peringkat teratas --}}
+    {{-- Peringkat teratas (hasil antar-unit, khusus admin) --}}
+    @if ($user->isAdmin())
     <div class="card">
         <div class="flex items-center justify-between gap-4 p-6 pb-4">
             <div>
@@ -216,4 +217,5 @@
             </table>
         </div>
     </div>
+    @endif
 </x-layouts.admin>

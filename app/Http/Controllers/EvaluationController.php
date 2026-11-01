@@ -122,6 +122,42 @@ class EvaluationController extends Controller
     }
 
     /**
+     * Finalisasi satu atau beberapa sesi: Proses Penilaian -> Selesai & Final.
+     */
+    public function finalize(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:evaluations,id'],
+        ], [
+            'ids.required' => 'Pilih minimal satu sesi evaluasi.',
+            'ids.min' => 'Pilih minimal satu sesi evaluasi.',
+        ]);
+
+        $evaluations = Evaluation::whereIn('id', $data['ids'])->get();
+
+        $locked = $evaluations->first(fn (Evaluation $e) => $e->isPeriodLocked());
+        if ($locked) {
+            return redirect()
+                ->route('evaluations.index')
+                ->with('error', 'Periode penilaian '.$locked->year.' sudah dikunci. Sesi tidak dapat difinalkan.');
+        }
+
+        $finalized = Evaluation::whereIn('id', $data['ids'])
+            ->where('status', 'in_review')
+            ->update(['status' => 'completed']);
+
+        $skipped = $evaluations->count() - $finalized;
+
+        $message = $finalized.' sesi difinalkan (Selesai & Final).'
+            .($skipped > 0 ? ' '.$skipped.' sesi dilewati karena statusnya bukan Proses Penilaian.' : '');
+
+        return redirect()
+            ->route('evaluations.index')
+            ->with($finalized > 0 ? 'success' : 'error', $message);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function validated(Request $request, ?Evaluation $evaluation = null): array

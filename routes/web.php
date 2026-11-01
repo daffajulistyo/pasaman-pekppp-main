@@ -69,11 +69,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/f03', [F03Controller::class, 'store'])->name('f03.store');
     });
 
-    // Laporan & Hasil
-    Route::get('/peringkat', [LeaderboardController::class, 'index'])->name('peringkat.index');
-
     // Laporan & Cetak dokumen (Berita Acara & Rekapitulasi) - Admin/Penilai
     Route::middleware('role:admin')->group(function () {
+        Route::get('/peringkat', [LeaderboardController::class, 'index'])->name('peringkat.index');
         Route::get('/laporan', [ReportController::class, 'index'])->name('laporan.index');
         Route::get('/laporan/berita-acara/{evaluation}', [ReportController::class, 'beritaAcara'])->name('laporan.berita_acara');
         Route::get('/laporan/berita-acara/{evaluation}/cetak', [ReportController::class, 'beritaAcaraCetak'])->name('laporan.berita_acara.cetak');
@@ -96,6 +94,8 @@ Route::middleware('auth')->group(function () {
         Route::resource('evaluations', EvaluationController::class)->only(['index', 'store', 'update', 'destroy']);
         Route::post('/evaluations/{evaluation}/recalculate', [EvaluationController::class, 'recalculate'])
             ->name('evaluations.recalculate');
+        Route::post('/evaluations/finalisasi', [EvaluationController::class, 'finalize'])
+            ->name('evaluations.finalize');
 
         // Periode Penilaian (buka/tutup/kunci/buka kembali)
         Route::get('/periode', [EvaluationPeriodController::class, 'index'])->name('periode.index');
